@@ -1,0 +1,85 @@
+name: Build Unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ '*' ]
+
+jobs:
+  ios-ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6'
+          cache: true
+
+      - name: Create .env
+        run: |
+          touch .env
+          echo "ENABLE_HEALTH_DATA_CONTRIBUTION=false" >> .env
+
+      - name: Ensure GoogleService-Info.plist placeholder
+        run: |
+          if [ ! -f "ios/Runner/GoogleService-Info.plist" ]; then
+            cat > "ios/Runner/GoogleService-Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>API_KEY</key>
+            <string>AIzaSyDummyDummyDummyDummyDummyDummyDum</string>
+            <key>GCM_SENDER_ID</key>
+            <string>000000000000</string>
+            <key>PLIST_VERSION</key>
+            <string>1</string>
+            <key>BUNDLE_ID</key>
+            <string>wtf.openstrap.dummy</string>
+            <key>PROJECT_ID</key>
+            <string>dummy-project</string>
+            <key>STORAGE_BUCKET</key>
+            <string>dummy-project.appspot.com</string>
+            <key>IS_ADS_ENABLED</key>
+            <false/>
+            <key>IS_ANALYTICS_ENABLED</key>
+            <false/>
+            <key>IS_APPINVITE_ENABLED</key>
+            <false/>
+            <key>IS_GCM_ENABLED</key>
+            <false/>
+            <key>IS_SIGNIN_ENABLED</key>
+            <false/>
+            <key>GOOGLE_APP_ID</key>
+            <string>1:000000000000:ios:0000000000000000000000</string>
+          </dict>
+          </plist>
+          EOF
+          fi
+
+      - name: Install flutterfire CLI
+        run: dart pub global activate flutterfire_cli 1.4.0
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+
+      - name: Strip Watch companion (ensures free-account sideloading succeeds)
+        run: rm -rf "build/ios/iphoneos/Runner.app/Watch"
+
+      - name: Package unsigned IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/Runner.app
+          zip -qr -y "$GITHUB_WORKSPACE/openstrap-edge-unsigned.ipa" Payload
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstrap-edge-unsigned-ipa
+          path: openstrap-edge-unsigned.ipa
+          retention-days: 14
